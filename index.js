@@ -15,7 +15,7 @@
 
 /* eslint import/no-absolute-path: [2, { commonjs: false, esmodule: false }] */
 
-import https from 'https';
+import https from "https";
 
 import Promise from "bluebird";
 import express from "express";
@@ -23,21 +23,21 @@ import multer from "multer";
 import axios from "axios";
 import asyncHandler from "express-async-handler";
 import oada from "@oada/oada-cache";
-import debug from 'debug';
+import debug from "debug";
 
 import config from "./config.js";
-import {trellisDocumentsTree} from "./trees.js";
+import { trellisDocumentsTree } from "./trees.js";
 
 const port = config.get("port");
 const domain = config.get("domain");
 const token = config.get("token");
 
-const info = debug('trellis-sendgrid-ingrest:info');
+const info = debug("trellis-sendgrid-ingrest:info");
 
 const con = oada.default.connect({
-	domain,
-	token,
-	cache: false // Just want `oada-cache` for it's tree stuff
+  domain,
+  token,
+  cache: false // Just want `oada-cache` for it's tree stuff
 });
 
 const upload = multer({
@@ -59,42 +59,43 @@ app.post(
     let subject = req.body.subject;
 
     info(`Recieved email (${subject}) from: ${from} to: ${to}`);
-	
-    return Promise.each(req.files, async (file) => {
-	    if (file.mimetype !== 'application/pdf') {
-		    return;
-	    }
 
-	    let r = await axios({
-		    url: `${domain}/resources`,
-		    method: 'post',
-		    headers: {
-			    "Authorization": `Bearer ${token}`,
-			    "Content-Type": "application/pdf",
-			    //"Content-Length": file.size,
-			    "Transfer-Encoding": "chunked"
+    return Promise.each(req.files, async file => {
+      if (file.mimetype !== "application/pdf") {
+        return;
+      }
 
-		    },
-		    data: file.buffer
-	    });
+      let r = await axios({
+        url: `${domain}/resources`,
+        method: "post",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/pdf",
+          //"Content-Length": file.size,
+          "Transfer-Encoding": "chunked"
+        },
+        data: file.buffer
+      });
 
-	    if (!r.headers['content-location']) {
-		throw new Error(r);
-	    }
+      if (!r.headers["content-location"]) {
+        throw new Error(r);
+      }
 
-	    let doc = await c.post({
-		path: '/bookmarks/trellisfw/documents',
-		tree: trellisDocumentsTree,
-		header: {
-			'Content-Type': 'application/vnd.trellisfw.document.1+json'
-		},
-		data: {
-			pdf: { _id: r.headers['content-location'].substr(1), _rev: 0 }
-		}
-	    });
+      let doc = await c.post({
+        path: "/bookmarks/trellisfw/documents",
+        tree: trellisDocumentsTree,
+        header: {
+          "Content-Type": "application/vnd.trellisfw.document.1+json"
+        },
+        data: {
+          pdf: { _id: r.headers["content-location"].substr(1), _rev: 0 }
+        }
+      });
 
-	    info(`Created Trellis document: ${doc.headers['content-location']}`);
-   });
+      info(`Created Trellis document: ${doc.headers["content-location"]}`);
+
+      res.end();
+    });
   })
 );
 
