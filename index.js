@@ -15,93 +15,108 @@
 
 /* eslint import/no-absolute-path: [2, { commonjs: false, esmodule: false }] */
 
-import https from "https";
+import https from 'https'
 
-import Promise from "bluebird";
-import express from "express";
-import multer from "multer";
-import axios from "axios";
-import asyncHandler from "express-async-handler";
-import oada from "@oada/oada-cache";
-import debug from "debug";
+import Promise from 'bluebird'
+import express from 'express'
+import multer from 'multer'
+import axios from 'axios'
+import asyncHandler from 'express-async-handler'
+import oada from '@oada/oada-cache'
+import debug from 'debug'
 
-import config from "./config.js";
-import { trellisDocumentsTree } from "./trees.js";
+import config from './config.js'
+import { trellisDocumentsTree } from './trees.js'
 
-const port = config.get("port");
-const domain = config.get("domain");
-const token = config.get("token");
+const port = config.get('port')
+const domain = config.get('domain')
+const token = config.get('token')
+// Comma separated list of emails
+const blacklist = config.get('blacklist')
 
-const info = debug("trellis-sendgrid-ingrest:info");
+const info = debug('trellis-sendgrid-ingest:info')
+
+const blacklistRegExps = blacklist
+  ? blacklist.split(',').map(email => RegExp(email))
+  : []
+
+info('Loaded blkacklist: %O', blacklistRegExps)
 
 const con = oada.default.connect({
   domain,
   token,
   cache: false // Just want `oada-cache` for it's tree stuff
-});
+})
 
 const upload = multer({
   limits: {
     files: 10,
     fileSize: 20 * 1024 * 1024 // 20 MB
   }
-});
+})
 
-const app = express();
+const app = express()
 
 app.post(
-  "/",
+  '/',
   upload.any(),
-  asyncHandler(async function(req, res) {
-    const c = await con;
-    let from = req.body.from;
-    let to = req.body.to;
-    let subject = req.body.subject;
+  asyncHandler(async function (req, res) {
+    const c = await con
+    const from = req.body.from
+    const to = req.body.to
+    const subject = req.body.subject
 
-    info(`Recieved email (${subject}) from: ${from} to: ${to}`);
+    info(`Recieved email (${subject}) from: ${from} to: ${to}`)
 
-    return Promise.each(req.files, async file => {
-      if (file.mimetype !== "application/pdf") {
-        return;
+    // Check for blacklisted emails?
+    if (blacklistRegExps.some(email => from.math(email))) {
+      // Ignore them
+      info(`Blacklisted email (${subject}) from: ${from} to: ${to}`)
+      return res.end()
+    }
+
+    await Promise.each(req.files, async file => {
+      if (file.mimetype !== 'application/pdf') {
+        return
       }
 
-      let r = await axios({
+      const r = await axios({
         url: `${domain}/resources`,
-        method: "post",
+        method: 'post',
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/pdf",
-          //"Content-Length": file.size,
-          "Transfer-Encoding": "chunked"
+          'Content-Type': 'application/pdf',
+          // "Content-Length": file.size,
+          'Transfer-Encoding': 'chunked'
         },
         data: file.buffer
-      });
+      })
 
-      if (!r.headers["content-location"]) {
-        throw new Error(r);
+      if (!r.headers['content-location']) {
+        throw new Error(r)
       }
 
-      let doc = await c.post({
-        path: "/bookmarks/trellisfw/documents",
+      const doc = await c.post({
+        path: '/bookmarks/trellisfw/documents',
         tree: trellisDocumentsTree,
         header: {
-          "Content-Type": "application/vnd.trellisfw.document.1+json"
+          'Content-Type': 'application/vnd.trellisfw.document.1+json'
         },
         data: {
-          pdf: { _id: r.headers["content-location"].substr(1), _rev: 0 }
+          pdf: { _id: r.headers['content-location'].substr(1), _rev: 0 }
         }
-      });
+      })
 
-      info(`Created Trellis document: ${doc.headers["content-location"]}`);
+      info(`Created Trellis document: ${doc.headers['content-location']}`)
+    })
 
-      res.end();
-    });
+    res.end()
   })
-);
+)
 
-var server = app.listen(port, function() {
-  console.log("Listening on port %d", server.address().port);
-});
+var server = app.listen(port, function () {
+  info('Listening on port %d', server.address().port)
+})
 
 /*
 
