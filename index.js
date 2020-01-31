@@ -92,11 +92,22 @@ app.post(
         data: file.buffer
       })
 
+      // Put filename in meta
+      await c.put({
+        path: `${r.headers['content-location']}/_meta`,
+        header: {
+          'Content-Type': 'application/json'
+        },
+        data: {
+          filename: file.originalname
+        }
+      })
+
       if (!r.headers['content-location']) {
         throw new Error(r)
       }
 
-      const doc = await c.post({
+      const { headers } = await c.post({
         path: '/bookmarks/trellisfw/documents',
         tree: trellisDocumentsTree,
         header: {
@@ -107,7 +118,7 @@ app.post(
         }
       })
 
-      info(`Created Trellis document: ${doc.headers['content-location']}`)
+      info(`Created Trellis document: ${headers['content-location']}`)
     })
 
     res.end()
