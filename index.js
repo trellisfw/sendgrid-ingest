@@ -69,15 +69,26 @@ app.post(
     info(`Recieved email (${subject}) from: ${from} to: ${to}`)
 
     // Check for blacklisted emails?
-    if (blacklistRegExps.some(email => from.math(email))) {
+    if (blacklistRegExps.some(email => from.match(email))) {
       // Ignore them
       info(`Blacklisted email (${subject}) from: ${from} to: ${to}`)
       return res.end()
     }
 
-    await Promise.each(req.files, async file => {
-      if (file.mimetype !== 'application/pdf') {
+    const attachments = JSON.parse(req.body['attachment-info'])
+    await Promise.each(Object.keys(attachments), async attachmentId => {
+      info(`Working on ${attachmentId}`)
+
+      const attachment = attachments[attachmentId]
+
+      if (attachment.type !== 'application/pdf') {
         return
+      }
+
+      const file = req.files.find(f => f.fieldname === attachmentId)
+
+      if (!file) {
+        throw new Error(`Could not find attachment: ${attachmentId}`)
       }
 
       const r = await axios({
@@ -95,11 +106,11 @@ app.post(
       // Put filename in meta
       await c.put({
         path: `${r.headers['content-location']}/_meta`,
-        header: {
+        headers: {
           'Content-Type': 'application/json'
         },
         data: {
-          filename: file.originalname
+          filename: attachment.filename
         }
       })
 
@@ -110,7 +121,7 @@ app.post(
       const { headers } = await c.post({
         path: '/bookmarks/trellisfw/documents',
         tree: trellisDocumentsTree,
-        header: {
+        headers: {
           'Content-Type': 'application/vnd.trellisfw.document.1+json'
         },
         data: {
