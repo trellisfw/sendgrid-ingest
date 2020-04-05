@@ -1,0 +1,25 @@
+{
+  "name": "trellis-sendgrid-ingest",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "μservice for ingest trellis emails",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "Andrew Balmos <andrew@qlever.io>",
+  "dependencies": {
+    "@oada/oada-cache": "^3.0.1",
+    "axios": "^0.19.2",
+    "bluebird": "^3.7.2",
+    "dotenv": "^8.2.0",
+    "express": "^4.17.1",
+    "express-async-handler": "^1.1.4",
+    "multer": "^1.4.2",
+    "nconf": "^0.10.0",
+    "node-fetch": "^2.6.0"
+  },
+  "devDependencies": {
+    "prettier": "^1.19.1"
+  }
+}
