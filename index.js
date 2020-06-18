@@ -30,10 +30,14 @@ import { trellisDocumentsTree } from './trees.js'
 const port = config.get('port')
 const domain = config.get('domain')
 const token = config.get('token')
+
+function splitList (list) {
+  return list ? list.split(/,\s*/) : []
+}
 // Comma separated list of domains or emails
-const whitelist = config.get('whitelist')?.split(/,\s*/) ?? []
+const whitelist = splitList(config.get('whitelist'))
 // Comma separated list of domains or emails
-const blacklist = config.get('blacklist')?.split(/,\s*/) ?? []
+const blacklist = splitList(config.get('blacklist'))
 
 const info = debug('trellis-sendgrid-ingest:info')
 
