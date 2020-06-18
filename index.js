@@ -15,8 +15,6 @@
 
 /* eslint import/no-absolute-path: [2, { commonjs: false, esmodule: false }] */
 
-import https from 'https'
-
 import Promise from 'bluebird'
 import express from 'express'
 import multer from 'multer'
@@ -24,6 +22,7 @@ import axios from 'axios'
 import asyncHandler from 'express-async-handler'
 import oada from '@oada/oada-cache'
 import debug from 'debug'
+import addrs from 'email-addresses'
 
 import config from './config.js'
 import { trellisDocumentsTree } from './trees.js'
@@ -31,16 +30,12 @@ import { trellisDocumentsTree } from './trees.js'
 const port = config.get('port')
 const domain = config.get('domain')
 const token = config.get('token')
-// Comma separated list of emails
-const blacklist = config.get('blacklist')
+// Comma separated list of domains or emails
+const whitelist = config.get('whitelist')?.split(/,\s*/) ?? []
+// Comma separated list of domains or emails
+const blacklist = config.get('blacklist')?.split(/,\s*/) ?? []
 
 const info = debug('trellis-sendgrid-ingest:info')
-
-const blacklistRegExps = blacklist
-  ? blacklist.split(',').map(email => RegExp(email))
-  : []
-
-info('Loaded blkacklist: %O', blacklistRegExps)
 
 const con = oada.default.connect({
   domain,
@@ -62,15 +57,19 @@ app.post(
   upload.any(),
   asyncHandler(async function (req, res) {
     const c = await con
-    const from = req.body.from
-    const to = req.body.to
-    const subject = req.body.subject
+    const { from, to, subject } = req.body
 
     info(`Recieved email (${subject}) from: ${from} to: ${to}`)
 
-    // Check for blacklisted emails?
-    if (blacklistRegExps.some(email => from.match(email))) {
-      // Ignore them
+    const addr = addrs.parseOneAddress(from)
+    // Check whitelist
+    if (whitelist.every(it => addr.address !== it && addr.domain !== it)) {
+      // Neither address nor domain of from was in whitelist
+      info(`Email not in whitelist (${subject}) from: ${from} to: ${to}`)
+      return res.end()
+    }
+    // Check blacklist
+    if (blacklist.some(it => addr.address === it || addr.domain === it)) {
       info(`Blacklisted email (${subject}) from: ${from} to: ${to}`)
       return res.end()
     }
