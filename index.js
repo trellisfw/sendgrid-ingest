@@ -23,6 +23,8 @@ import asyncHandler from 'express-async-handler'
 import oada from '@oada/oada-cache'
 import debug from 'debug'
 import addrs from 'email-addresses'
+import DKIM from 'dkim'
+import mailparser from 'mailparser'
 
 import config from './config.js'
 import { trellisDocumentsTree } from './trees.js'
@@ -61,11 +63,39 @@ app.post(
   upload.any(),
   asyncHandler(async function (req, res) {
     const c = await con
-    const { from, to, subject } = req.body
+
+    const { from, to, subject, email } = req.body
+
+    // Use DKIM to check for spoofing of from
+    const addr = addrs.parseOneAddress(from)
+    /**
+     * The types included with dkim suck
+     * @type {{verified: boolean, status: string, signature: DKIM.Signature}[]}
+     */
+    const dkim = await Promise.fromNode(done => DKIM.verify(email, done))
+    for (const { verified, status, signature } of dkim) {
+      // Find signature for from domain
+      // Allows from to be child domain of signature
+      if (('.' + addr.domain).endsWith('.' + signature.domain)) {
+        continue
+      }
+
+      if (verified) {
+        break
+      }
+
+      trace(`Messgage failed DKIM check, status: ${status}`)
+      switch (status) {
+        case DKIM.TEMPFAIL:
+          // Let sendrid try again later
+          return res.send(500)
+        default:
+          return res.end()
+      }
+    }
 
     info(`Recieved email (${subject}) from: ${from} to: ${to}`)
 
-    const addr = addrs.parseOneAddress(from)
     // Check whitelist
     if (whitelist.every(it => addr.address !== it && addr.domain !== it)) {
       // Neither address nor domain of from was in whitelist
@@ -78,62 +108,58 @@ app.post(
       return res.end()
     }
 
-    const attachments = JSON.parse(req.body['attachment-info'])
-    await Promise.each(Object.keys(attachments), async attachmentId => {
-      info(`Working on ${attachmentId}`)
+    // Parse email attachments
+    const { attachments } = await mailparser.simpleParser(email)
+    await Promise.each(
+      attachments,
+      async ({ cid, filename, contentType, content }) => {
+        info(`Working on attachment ${cid}`)
 
-      const attachment = attachments[attachmentId]
-
-      if (attachment.type !== 'application/pdf') {
-        return
-      }
-
-      const file = req.files.find(f => f.fieldname === attachmentId)
-
-      if (!file) {
-        throw new Error(`Could not find attachment: ${attachmentId}`)
-      }
-
-      const r = await axios({
-        url: `${domain}/resources`,
-        method: 'post',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/pdf',
-          // "Content-Length": file.size,
-          'Transfer-Encoding': 'chunked'
-        },
-        data: file.buffer
-      })
-
-      // Put filename in meta
-      await c.put({
-        path: `${r.headers['content-location']}/_meta`,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        data: {
-          filename: attachment.filename
+        if (contentType !== 'application/pdf') {
+          return
         }
-      })
 
-      if (!r.headers['content-location']) {
-        throw new Error(r)
-      }
+        const r = await axios({
+          url: `${domain}/resources`,
+          method: 'post',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/pdf',
+            // "Content-Length": file.size,
+            'Transfer-Encoding': 'chunked'
+          },
+          data: content
+        })
 
-      const { headers } = await c.post({
-        path: '/bookmarks/trellisfw/documents',
-        tree: trellisDocumentsTree,
-        headers: {
-          'Content-Type': 'application/vnd.trellisfw.document.1+json'
-        },
-        data: {
-          pdf: { _id: r.headers['content-location'].substr(1), _rev: 0 }
+        // Put filename in meta
+        await c.put({
+          path: `${r.headers['content-location']}/_meta`,
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          data: {
+            filename
+          }
+        })
+
+        if (!r.headers['content-location']) {
+          throw new Error(r)
         }
-      })
 
-      info(`Created Trellis document: ${headers['content-location']}`)
-    })
+        const { headers } = await c.post({
+          path: '/bookmarks/trellisfw/documents',
+          tree: trellisDocumentsTree,
+          headers: {
+            'Content-Type': 'application/vnd.trellisfw.document.1+json'
+          },
+          data: {
+            pdf: { _id: r.headers['content-location'].substr(1), _rev: 0 }
+          }
+        })
+
+        info(`Created Trellis document: ${headers['content-location']}`)
+      }
+    )
 
     res.end()
   })
