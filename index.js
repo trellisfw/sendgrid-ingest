@@ -66,10 +66,16 @@ app.post(
     const c = await con
 
     /**
-     * @type {{from: string, to: string, subject: string, email: string}}
+     * @type {{
+     *   from: string,
+     *   to: string,
+     *   subject: string,
+     *   dkim: string,
+     *   email: string
+     * }}
      * @see {@link https://sendgrid.com/docs/for-developers/parsing-email/setting-up-the-inbound-parse-webhook/ }
      */
-    const { from, to, subject, email } = req.body
+    const { from, to, subject, dkim: sgdkim, email } = req.body
 
     // Use DKIM to check for spoofing of from
     const addr = addrs.parseOneAddress(from)
@@ -80,6 +86,7 @@ app.post(
     const dkim = await Promise.fromNode(done =>
       DKIM.verify(Buffer.from(email), done)
     )
+    trace(`Sendgrid DKIM: ${sgdkim}`)
     trace('DKIM: %O', dkim)
     if (dkim.length === 0) {
       // Require DKIM to be present?
