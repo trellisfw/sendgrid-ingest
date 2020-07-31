@@ -42,6 +42,7 @@ const whitelist = splitList(config.get('whitelist'))
 const blacklist = splitList(config.get('blacklist'))
 
 const info = debug('trellis-sendgrid-ingest:info')
+const trace = debug('trellis-sendgrid-ingest:trace')
 
 const con = oada.default.connect({
   domain,
