@@ -83,7 +83,7 @@ app.post(
     trace('DKIM: %O', dkim)
     if (dkim.length === 0) {
       // Require DKIM to be present?
-      res.end()
+      return res.end()
     }
     for (const { verified, status, signature } of dkim) {
       // Find signature for from domain
