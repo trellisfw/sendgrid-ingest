@@ -79,6 +79,11 @@ app.post(
     const dkim = await Promise.fromNode(done =>
       DKIM.verify(Buffer.from(email), done)
     )
+    trace('DKIM: %O', dkim)
+    if (dkim.length === 0) {
+      // Require DKIM to be present?
+      res.end()
+    }
     for (const { verified, status, signature } of dkim) {
       // Find signature for from domain
       // Allows from to be child domain of signature
