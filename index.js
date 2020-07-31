@@ -64,6 +64,10 @@ app.post(
   asyncHandler(async function (req, res) {
     const c = await con
 
+    /**
+     * @type {{from: string, to: string, subject: string, email: string}}
+     * @see {@link https://sendgrid.com/docs/for-developers/parsing-email/setting-up-the-inbound-parse-webhook/ }
+     */
     const { from, to, subject, email } = req.body
 
     // Use DKIM to check for spoofing of from
@@ -72,7 +76,9 @@ app.post(
      * The types included with dkim suck
      * @type {{verified: boolean, status: string, signature: DKIM.Signature}[]}
      */
-    const dkim = await Promise.fromNode(done => DKIM.verify(email, done))
+    const dkim = await Promise.fromNode(done =>
+      DKIM.verify(Buffer.from(email), done)
+    )
     for (const { verified, status, signature } of dkim) {
       // Find signature for from domain
       // Allows from to be child domain of signature
