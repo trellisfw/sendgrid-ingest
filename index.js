@@ -23,8 +23,9 @@ import asyncHandler from 'express-async-handler'
 import oada from '@oada/oada-cache'
 import debug from 'debug'
 import addrs from 'email-addresses'
-import DKIM from 'dkim'
+//import DKIM from 'dkim'
 import mailparser from 'mailparser'
+import HJSON from 'hjson'
 
 import config from './config.js'
 import { trellisDocumentsTree } from './trees.js'
@@ -76,6 +77,7 @@ app.post(
      * @see {@link https://sendgrid.com/docs/for-developers/parsing-email/setting-up-the-inbound-parse-webhook/ }
      */
     const { from, to, subject, dkim: sgdkim, email } = req.body
+    trace(email)
 
     // Use DKIM to check for spoofing of from
     const addr = addrs.parseOneAddress(from)
@@ -83,10 +85,18 @@ app.post(
      * The types included with dkim suck
      * @type {{verified: boolean, status: string, signature: DKIM.Signature}[]}
      */
+    /* TODO: Figure out why this is broken
     const dkim = await Promise.fromNode(done =>
       DKIM.verify(Buffer.from(email), done)
     )
+    */
     trace(`Sendgrid DKIM: ${sgdkim}`)
+    const dkim = HJSON.parse(sgdkim.replace('{', '{\n').repalce('}', '\n}'))
+      .entries()
+      .map(([key, value]) => ({
+        verified: value === 'pass',
+        signature: { domain: key.substring(1) }
+      }))
     trace('DKIM: %O', dkim)
     if (dkim.length === 0) {
       // Require DKIM to be present?
