@@ -91,25 +91,27 @@ app.post(
     )
     */
     trace(`Sendgrid DKIM: ${sgdkim}`)
-    const dkim = HJSON.parse(sgdkim.replace('{', '{\n').repalce('}', '\n}'))
-      .entries()
-      .map(([key, value]) => ({
-        verified: value === 'pass',
-        signature: { domain: key.substring(1) }
-      }))
+    const dkim = Object.entries(
+      HJSON.parse(sgdkim.replace('{', '{\n').replace('}', '\n}'))
+    ).map(([key, value]) => ({
+      verified: value === 'pass',
+      signature: { domain: key.substring(1) }
+    }))
     trace('DKIM: %O', dkim)
     if (dkim.length === 0) {
       // Require DKIM to be present?
       return res.end()
     }
+    let foundDkim = false
     for (const { verified, status, signature } of dkim) {
       // Find signature for from domain
       // Allows from to be child domain of signature
-      if (('.' + addr.domain).endsWith('.' + signature.domain)) {
+      if (!('.' + addr.domain).endsWith('.' + signature.domain)) {
         continue
       }
 
       if (verified) {
+        foundDkim = true
         break
       }
 
@@ -121,6 +123,10 @@ app.post(
         default:
           return res.end()
       }
+    }
+    if (!foundDkim) {
+      info(`No sender DKIM for email (${subject}) from: ${from} to: ${to}`)
+      return res.end()
     }
 
     info(`Recieved email (${subject}) from: ${from} to: ${to}`)
