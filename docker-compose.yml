@@ -1,4 +1,4 @@
-version: "3"
+version: '3'
 
 services:
   ##########################################
@@ -15,7 +15,6 @@ services:
     volumes:
       - ./services-available/sendgrid-ingest:/code/sendgrid-ingest
 
-
   ###############################################
   # This service's definition:
   ###############################################
@@ -27,7 +26,7 @@ services:
     container_name: sendgrid-ingest
     restart: always
     ports:
-      - "${BIND:-0.0.0.0}:${PORT_PARSE:-8888}:8888"
+      - '${BIND:-0.0.0.0}:${PORT_PARSE:-8888}:8888'
     networks:
       - http_net
       - startup_net
@@ -40,4 +39,3 @@ services:
       - NODE_TLS_REJECT_UNAUTHORIZED
       - NODE_ENV=${NODE_ENV:-development}
       - DEBUG
-

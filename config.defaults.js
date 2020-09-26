@@ -15,6 +15,6 @@
 
 export default {
   port: 8888,
-  domain: "https://smithfield.trellis.one",
-  token: "def"
+  domain: 'https://smithfield.trellis.one',
+  token: 'def',
 };

@@ -13,12 +13,12 @@
  * limitations under the License.
  */
 
-import dotenv from 'dotenv'
+import dotenv from 'dotenv';
 
 // TODO: Publish this to npm instead?
-import libConfig from './lib-config.cjs'
-import config from './config.defaults.js'
+import libConfig from './lib-config.cjs';
+import config from './config.defaults.js';
 
-dotenv.config()
+dotenv.config();
 
-export default libConfig(config)
+export default libConfig(config);

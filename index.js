@@ -15,56 +15,61 @@
 
 /* eslint import/no-absolute-path: [2, { commonjs: false, esmodule: false }] */
 
-import Promise from 'bluebird'
-import express from 'express'
-import multer from 'multer'
-import axios from 'axios'
-import asyncHandler from 'express-async-handler'
-import oada from '@oada/oada-cache'
-import debug from 'debug'
-import addrs from 'email-addresses'
+import Promise from 'bluebird';
+import express from 'express';
+import multer from 'multer';
+import axios from 'axios';
+import asyncHandler from 'express-async-handler';
+import oada from '@oada/oada-cache';
+import debug from 'debug';
+import addrs from 'email-addresses';
 //import DKIM from 'dkim'
-import mailparser from 'mailparser'
-import HJSON from 'hjson'
+import mailparser from 'mailparser';
+import HJSON from 'hjson';
 
-import config from './config.js'
-import { trellisDocumentsTree } from './trees.js'
+import config from './config.js';
+import { trellisDocumentsTree } from './trees.js';
 
-const port = config.get('port')
-const domain = config.get('domain')
-const token = config.get('token')
+const port = config.get('port');
+const domain = config.get('domain');
+const token = config.get('token');
 
-function splitList (list) {
-  return list ? list.split(/,\s*/) : []
+/**
+ * @return {string[]}
+ */
+function splitList(list) {
+  return list ? list.split(/,\s*/) : [];
 }
+// Comman separated list of domains
+const dkimlist = splitList(config.get('dkim_whitelist'));
 // Comma separated list of domains or emails
-const whitelist = splitList(config.get('whitelist'))
+const whitelist = splitList(config.get('whitelist'));
 // Comma separated list of domains or emails
-const blacklist = splitList(config.get('blacklist'))
+const blacklist = splitList(config.get('blacklist'));
 
-const info = debug('trellis-sendgrid-ingest:info')
-const trace = debug('trellis-sendgrid-ingest:trace')
+const info = debug('trellis-sendgrid-ingest:info');
+const trace = debug('trellis-sendgrid-ingest:trace');
 
-const con = oada.default.connect({
+const con = (oada.default || oada).connect({
   domain,
   token,
-  cache: false // Just want `oada-cache` for it's tree stuff
-})
+  cache: false, // Just want `oada-cache` for it's tree stuff
+});
 
 const upload = multer({
   limits: {
     files: 10,
-    fileSize: 20 * 1024 * 1024 // 20 MB
-  }
-})
+    fileSize: 20 * 1024 * 1024, // 20 MB
+  },
+});
 
-const app = express()
+const app = express();
 
 app.post(
   '/',
   upload.any(),
   asyncHandler(async function (req, res) {
-    const c = await con
+    const c = await con;
 
     /**
      * @type {{
@@ -76,11 +81,13 @@ app.post(
      * }}
      * @see {@link https://sendgrid.com/docs/for-developers/parsing-email/setting-up-the-inbound-parse-webhook/ }
      */
-    const { from, to, subject, dkim: sgdkim, email } = req.body
-    trace(email)
+    const { from, to, subject, dkim: sgdkim, email } = req.body;
+    trace(email);
 
-    // Use DKIM to check for spoofing of from
-    const addr = addrs.parseOneAddress(from)
+    /**
+     * Parsed from address
+     */
+    const addr = addrs.parseOneAddress(from);
     /**
      * The types included with dkim suck
      * @type {{verified: boolean, status: string, signature: DKIM.Signature}[]}
@@ -90,119 +97,99 @@ app.post(
       DKIM.verify(Buffer.from(email), done)
     )
     */
-    trace(`Sendgrid DKIM: ${sgdkim}`)
+    trace(`Sendgrid DKIM: ${sgdkim}`);
     const dkim = Object.entries(
       HJSON.parse(sgdkim.replace('{', '{\n').replace('}', '\n}'))
     ).map(([key, value]) => ({
       verified: value === 'pass',
-      signature: { domain: key.substring(1) }
-    }))
-    trace('DKIM: %O', dkim)
+      signature: { domain: key.substring(1) },
+    }));
+    trace('DKIM: %O', dkim);
+    // Use DKIM to check for spoofing of from
     if (dkim.length === 0) {
       // Require DKIM to be present?
-      return res.end()
+      return res.end();
     }
-    let foundDkim = false
-    for (const { verified, status, signature } of dkim) {
-      // Find signature for from domain
-      // Allows from to be child domain of signature
-      if (!('.' + addr.domain).endsWith('.' + signature.domain)) {
-        continue
-      }
-
-      if (verified) {
-        foundDkim = true
-        break
-      }
-
-      trace(`Messgage failed DKIM check, status: ${status}`)
-      switch (status) {
-        case DKIM.TEMPFAIL:
-          // Let sendrid try again later
-          return res.send(500)
-        default:
-          return res.end()
-      }
-    }
-    if (!foundDkim) {
-      info(`No sender DKIM for email (${subject}) from: ${from} to: ${to}`)
-      return res.end()
+    // Check for DKIM from one of the allowed domains
+    if (dkimlist.every((it) => dkim.signature.domain !== it)) {
+      trace(`DKIM domain not in whitelist ${dkim.signature.domain}`);
+      return res.end();
     }
 
-    info(`Recieved email (${subject}) from: ${from} to: ${to}`)
+    info(`Recieved email (${subject}) from: ${from} to: ${to}`);
 
     // Check whitelist
-    if (whitelist.every(it => addr.address !== it && addr.domain !== it)) {
+    if (whitelist.every((it) => addr.address !== it && addr.domain !== it)) {
       // Neither address nor domain of from was in whitelist
-      info(`Email not in whitelist (${subject}) from: ${from} to: ${to}`)
-      return res.end()
+      info(`Email not in whitelist (${subject}) from: ${from} to: ${to}`);
+      return res.end();
     }
     // Check blacklist
-    if (blacklist.some(it => addr.address === it || addr.domain === it)) {
-      info(`Blacklisted email (${subject}) from: ${from} to: ${to}`)
-      return res.end()
+    if (blacklist.some((it) => addr.address === it || addr.domain === it)) {
+      info(`Blacklisted email (${subject}) from: ${from} to: ${to}`);
+      return res.end();
     }
 
     // Parse email attachments
-    const { attachments } = await mailparser.simpleParser(email)
+    const { attachments } = await mailparser.simpleParser(email);
     await Promise.each(
       attachments,
       async ({ cid, filename, contentType, content }) => {
-        info(`Working on attachment ${cid}`)
+        info(`Working on attachment ${cid}`);
 
         if (contentType !== 'application/pdf') {
-          return
+          return;
         }
 
         const r = await axios({
           url: `${domain}/resources`,
           method: 'post',
           headers: {
-            Authorization: `Bearer ${token}`,
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/pdf',
             // "Content-Length": file.size,
-            'Transfer-Encoding': 'chunked'
+            'Transfer-Encoding': 'chunked',
           },
-          data: content
-        })
+          data: content,
+        });
 
         // Put filename in meta
         await c.put({
           path: `${r.headers['content-location']}/_meta`,
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
           },
           data: {
-            filename
-          }
-        })
+            filename,
+          },
+        });
 
         if (!r.headers['content-location']) {
-          throw new Error(r)
+          throw new Error(r);
         }
 
         const { headers } = await c.post({
           path: '/bookmarks/trellisfw/documents',
           tree: trellisDocumentsTree,
           headers: {
-            'Content-Type': 'application/vnd.trellisfw.document.1+json'
+            'Content-Type': 'application/vnd.trellisfw.document.1+json',
           },
           data: {
-            pdf: { _id: r.headers['content-location'].substr(1), _rev: 0 }
-          }
-        })
+            pdf: { _id: r.headers['content-location'].substr(1), _rev: 0 },
+          },
+        });
 
-        info(`Created Trellis document: ${headers['content-location']}`)
+        info(`Created Trellis document: ${headers['content-location']}`);
       }
-    )
+    );
 
-    res.end()
+    res.end();
   })
-)
+);
 
 var server = app.listen(port, function () {
-  info('Listening on port %d', server.address().port)
-})
+  info('Listening on port %d', server.address().port);
+});
 
 /*
 
