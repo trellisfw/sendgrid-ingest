@@ -111,8 +111,10 @@ app.post(
       return res.end();
     }
     // Check for DKIM from one of the allowed domains
-    if (dkimlist.every((it) => dkim.signature.domain !== it)) {
-      trace(`DKIM domain not in whitelist ${dkim.signature.domain}`);
+    if (
+      dkimlist.every((it) => dkim.some((dkim) => dkim.signature.domain !== it))
+    ) {
+      trace(`DKIM domain not in whitelist ${dkimlist}`);
       return res.end();
     }
 
