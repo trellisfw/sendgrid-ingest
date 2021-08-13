@@ -15,45 +15,38 @@
 
 /* eslint import/no-absolute-path: [2, { commonjs: false, esmodule: false }] */
 
-import Promise from 'bluebird';
+import Bluebird from 'bluebird';
 import express from 'express';
 import multer from 'multer';
 import axios from 'axios';
 import asyncHandler from 'express-async-handler';
-import oada from '@oada/oada-cache';
+import { connect } from '@oada/client';
 import debug from 'debug';
 import addrs from 'email-addresses';
 //import DKIM from 'dkim'
 import mailparser from 'mailparser';
 import HJSON from 'hjson';
 
-import config from './config.js';
-import { trellisDocumentsTree } from './trees.js';
+import config from './config';
+import { trellisDocumentsTree } from './trees';
 
 const port = config.get('port');
-const domain = config.get('domain');
-const token = config.get('token');
+const domain = config.get('oada.domain');
+const token = config.get('oada.token');
 
-/**
- * @return {string[]}
- */
-function splitList(list) {
-  return list ? list.split(/,\s*/) : [];
-}
-// Comman separated list of domains
-const dkimlist = splitList(config.get('dkim_whitelist'));
+// Comma separated list of domains
+const dkimlist = config.get('dkim_whitelist');
 // Comma separated list of domains or emails
-const whitelist = splitList(config.get('whitelist'));
+const whitelist = config.get('whitelist');
 // Comma separated list of domains or emails
-const blacklist = splitList(config.get('blacklist'));
+const blacklist = config.get('blacklist');
 
 const info = debug('trellis-sendgrid-ingest:info');
 const trace = debug('trellis-sendgrid-ingest:trace');
 
-const con = (oada.default || oada).connect({
+const con = connect({
   domain,
   token,
-  cache: false, // Just want `oada-cache` for it's tree stuff
 });
 
 const upload = multer({
@@ -65,29 +58,33 @@ const upload = multer({
 
 const app = express();
 
+/**
+ * @see {@link https://sendgrid.com/docs/for-developers/parsing-email/setting-up-the-inbound-parse-webhook/ }
+ */
+interface InboundMail {
+  from: string;
+  to: string;
+  subject: string;
+  dkim: string;
+  email: string;
+}
+
 app.post(
   '/',
   upload.any(),
   asyncHandler(async function (req, res) {
     const c = await con;
 
-    /**
-     * @type {{
-     *   from: string,
-     *   to: string,
-     *   subject: string,
-     *   dkim: string,
-     *   email: string
-     * }}
-     * @see {@link https://sendgrid.com/docs/for-developers/parsing-email/setting-up-the-inbound-parse-webhook/ }
-     */
-    const { from, to, subject, dkim: sgdkim, email } = req.body;
+    const { from, to, subject, dkim: sgdkim, email }: InboundMail = req.body;
     trace(email);
 
     /**
      * Parsed from address
      */
     const addr = addrs.parseOneAddress(from);
+    if (!(addr && 'address' in addr)) {
+      throw new Error(`Failed to parse from address: ${from}`);
+    }
     /**
      * The types included with dkim suck
      * @type {{verified: boolean, status: string, signature: DKIM.Signature}[]}
@@ -97,14 +94,14 @@ app.post(
       DKIM.verify(Buffer.from(email), done)
     )
     */
-    trace(`Sendgrid DKIM: ${sgdkim}`);
+    trace(sgdkim, 'Sendgrid DKIM');
     const dkim = Object.entries(
       HJSON.parse(sgdkim.replace('{', '{\n').replace('}', '\n}'))
     ).map(([key, value]) => ({
       verified: value === 'pass',
       signature: { domain: key.substring(1) },
     }));
-    trace('DKIM: %O', dkim);
+    trace(dkim, 'DKIM');
     // Use DKIM to check for spoofing of from
     if (dkim.length === 0) {
       // Require DKIM to be present?
@@ -114,30 +111,30 @@ app.post(
     if (
       dkimlist.every((it) => dkim.some((dkim) => dkim.signature.domain !== it))
     ) {
-      trace(`DKIM domain not in whitelist ${dkimlist}`);
+      trace(dkimlist, 'DKIM domain not in whitelist');
       return res.end();
     }
 
-    info(`Recieved email (${subject}) from: ${from} to: ${to}`);
+    info('Recieved email (%s) from: %s to: %s', subject, from, to);
 
     // Check whitelist
     if (whitelist.every((it) => addr.address !== it && addr.domain !== it)) {
       // Neither address nor domain of from was in whitelist
-      info(`Email not in whitelist (${subject}) from: ${from} to: ${to}`);
+      info('Email not in whitelist (%s) from: %s to: %s', subject, from, to);
       return res.end();
     }
     // Check blacklist
     if (blacklist.some((it) => addr.address === it || addr.domain === it)) {
-      info(`Blacklisted email (${subject}) from: ${from} to: ${to}`);
+      info('Blacklisted email (%s) from: %s to: %s', subject, from, to);
       return res.end();
     }
 
     // Parse email attachments
     const { attachments } = await mailparser.simpleParser(email);
-    await Promise.each(
+    await Bluebird.each(
       attachments,
       async ({ cid, filename, contentType, content }) => {
-        info(`Working on attachment ${cid}`);
+        info('Working on attachment %s', cid);
 
         if (contentType !== 'application/pdf') {
           return;
@@ -158,30 +155,26 @@ app.post(
         // Put filename in meta
         await c.put({
           path: `${r.headers['content-location']}/_meta`,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          contentType: 'application/json',
           data: {
             filename,
           },
         });
 
         if (!r.headers['content-location']) {
-          throw new Error(r);
+          throw new Error(r.toString());
         }
 
         const { headers } = await c.post({
           path: '/bookmarks/trellisfw/documents',
           tree: trellisDocumentsTree,
-          headers: {
-            'Content-Type': 'application/vnd.trellisfw.document.1+json',
-          },
+          contentType: 'application/vnd.trellisfw.document.1+json',
           data: {
             pdf: { _id: r.headers['content-location'].substr(1), _rev: 0 },
           },
         });
 
-        info(`Created Trellis document: ${headers['content-location']}`);
+        info('Created Trellis document: %s', headers['content-location']);
       }
     );
 
@@ -189,8 +182,8 @@ app.post(
   })
 );
 
-var server = app.listen(port, function () {
-  info('Listening on port %d', server.address().port);
+app.listen(port, function () {
+  info('Listening on port %d', port);
 });
 
 /*

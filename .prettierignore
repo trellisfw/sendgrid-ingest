@@ -1,5 +1,15 @@
-# Ignore compiled TS output
-lib
+dist
+node_modules
+yarn-cache
+services-available
 
-yarn.lock
+LICENSE
+
 tags*
+
+**/yarn.lock
+**/yarn-error.log
+**/.yarn/*
+**/.pnp.*
+
+act
