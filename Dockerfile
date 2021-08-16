@@ -1,5 +1,5 @@
 ARG NODE_VER=16-alpine
-ARG SERVICE=Qlever-LLC/oada-service-template
+ARG SERVICE=trellisfw/sendgrid-ingest
 
 FROM node:$NODE_VER AS install
 ARG SERVICE

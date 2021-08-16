@@ -1,5 +1,5 @@
 services:
-  service:
+  sendgrid-ingest:
     build:
       context: .
     image: Qlever-LLC/oada-service-template

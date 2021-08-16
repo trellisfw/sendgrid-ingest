@@ -1,6 +1,6 @@
 # Thing for oadadeploy nonsense?
 services:
-  serivce:
+  sendgrid-ingest:
     extends:
       file: ./services/Qlever-LLC/oada-service-template/docker-compose.yml
-      service: service
+      service: sendgrid-ingest
