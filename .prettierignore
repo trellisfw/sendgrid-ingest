@@ -1,7 +1,6 @@
 dist
 node_modules
 yarn-cache
-services-available
 
 LICENSE
 
