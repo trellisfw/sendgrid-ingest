@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+/* eslint-disable no-secrets/no-secrets */
+
 export const trellisDocumentsTree = {
   bookmarks: {
     _type: 'application/vnd.oada.bookmarks.1+json',
@@ -22,11 +24,9 @@ export const trellisDocumentsTree = {
       _type: 'application/vnd.trellisfw.1+json',
       _rev: 0,
       documents: {
-        // eslint-disable-next-line no-secrets/no-secrets
         '_type': 'application/vnd.trellisfw.documents.1+json',
         '_rev': 0,
         '*': {
-          // eslint-disable-next-line no-secrets/no-secrets
           _type: 'application/vnd.trellisfw.document.1+json',
           _rev: 0,
           pdf: {
@@ -37,4 +37,4 @@ export const trellisDocumentsTree = {
       },
     },
   },
-};
+} as const;

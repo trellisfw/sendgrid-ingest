@@ -1,18 +1,18 @@
 {
   "extends": "@tsconfig/node16",
   "compilerOptions": {
-    "module": "esnext",
-    "moduleResolution": "node",
+    "module": "node16",
+    "moduleResolution": "node16",
     "removeComments": true,
     "importHelpers": true,
     "strict": true,
-    "importsNotUsedAsValues": "error",
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitThis": true,
     "noImplicitAny": true,
     "noImplicitOverride": true,
+    "noErrorTruncation": true,
     "sourceMap": true,
     "rootDir": "src",
     "outDir": "dist"

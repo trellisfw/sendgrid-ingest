@@ -15,19 +15,24 @@
  * limitations under the License.
  */
 
+import config from './config.js';
+
+import '@oada/pino-debug';
+
 import HJSON from 'hjson';
+import _debug from 'debug';
 import addresses from 'email-addresses';
 import asyncHandler from 'express-async-handler';
-import axios from 'axios';
-import { connect } from '@oada/client';
-import debug from 'debug';
 import express from 'express';
+import got from 'got';
 import multer from 'multer';
 // Import DKIM from 'dkim'
 import mailparser from 'mailparser';
 
-import config from './config';
-import { trellisDocumentsTree } from './trees';
+import { Counter } from '@oada/lib-prom';
+import { connect } from '@oada/client';
+
+import { trellisDocumentsTree } from './trees.js';
 
 const port = config.get('port');
 const domain = config.get('oada.domain');
@@ -40,10 +45,17 @@ const whitelist = config.get('whitelist');
 // Comma separated list of domains or emails
 const blacklist = config.get('blacklist');
 
-const info = debug('trellis-sendgrid-ingest:info');
-const trace = debug('trellis-sendgrid-ingest:trace');
+const warn = _debug('trellis-sendgrid-ingest:warn');
+const info = _debug('trellis-sendgrid-ingest:info');
+const debug = _debug('trellis-sendgrid-ingest:debug');
+const trace = _debug('trellis-sendgrid-ingest:trace');
 
-const con = connect({
+const emailCounter = new Counter({
+  name: 'incoming_emails_total',
+  help: 'Total number of emails received',
+});
+
+const conn = await connect({
   domain,
   token,
 });
@@ -72,8 +84,8 @@ app.post(
   '/',
   upload.any(),
   asyncHandler(async (request, response) => {
-    const c = await con;
-
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    info({ email: request.body }, 'Handling incoming email');
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const {
       from,
@@ -82,14 +94,13 @@ app.post(
       dkim: sgdkim,
       email,
     }: InboundMail = request.body;
-    trace(email);
 
     /**
      * Parsed from address
      */
     const addr = addresses.parseOneAddress(from);
     if (!(addr && 'address' in addr)) {
-      throw new Error(`Failed to parse from address: ${from}`);
+      throw new TypeError(`Failed to parse from address: ${from}`);
     }
 
     /**
@@ -103,7 +114,10 @@ app.post(
     */
     trace(sgdkim, 'Sendgrid DKIM');
     const dkim = Object.entries(
-      HJSON.parse(sgdkim.replace('{', '{\n').replace('}', '\n}'))
+      HJSON.parse(sgdkim.replace('{', '{\n').replace('}', '\n}')) as Record<
+        string,
+        unknown
+      >
     ).map(([key, value]) => ({
       verified: value === 'pass',
       signature: { domain: key.slice(1) },
@@ -118,39 +132,38 @@ app.post(
 
     // Check for DKIM from one of the allowed domains
     if (dkimlist.every((it) => dkim.some((d) => d.signature.domain !== it))) {
-      trace(dkimlist, 'DKIM domain not in whitelist');
+      debug(dkimlist, 'DKIM domain not in whitelist');
       response.end();
       return;
     }
 
-    info('Received email (%s) from: %s to: %s', subject, from, to);
+    debug('Received email (%s) from: %s to: %s', subject, from, to);
 
     // Check whitelist
     if (whitelist.every((it) => addr.address !== it && addr.domain !== it)) {
       // Neither address nor domain of from was in whitelist
-      info('Email not in whitelist (%s) from: %s to: %s', subject, from, to);
+      warn('Email not in whitelist (%s) from: %s to: %s', subject, from, to);
       response.end();
       return;
     }
 
     // Check blacklist
     if (blacklist.some((it) => addr.address === it || addr.domain === it)) {
-      info('Blacklisted email (%s) from: %s to: %s', subject, from, to);
+      warn('Blacklisted email (%s) from: %s to: %s', subject, from, to);
       response.end();
       return;
     }
 
     // Parse email attachments
     const { attachments } = await mailparser.simpleParser(email);
-    for (const { cid, filename, contentType, content } of attachments) {
-      info('Working on attachment %s', cid);
+    for await (const { cid, filename, contentType, content } of attachments) {
+      debug('Working on attachment %s', cid);
 
       if (contentType !== 'application/pdf') {
         return;
       }
 
-      // eslint-disable-next-line no-await-in-loop
-      const r = await axios({
+      const r = await got({
         url: `${domain}/resources`,
         method: 'post',
         headers: {
@@ -159,12 +172,11 @@ app.post(
           // "Content-Length": file.size,
           'Transfer-Encoding': 'chunked',
         },
-        data: content,
+        json: content,
       });
 
       // Put filename in meta
-      // eslint-disable-next-line no-await-in-loop
-      await c.put({
+      await conn.put({
         path: `${r.headers['content-location']}/_meta`,
         contentType: 'application/json',
         data: {
@@ -173,11 +185,10 @@ app.post(
       });
 
       if (!r.headers['content-location']) {
-        throw new Error(r.statusText);
+        throw new Error(r.statusMessage);
       }
 
-      // eslint-disable-next-line no-await-in-loop
-      const { headers } = await c.post({
+      const { headers } = await conn.post({
         path: '/bookmarks/trellisfw/documents',
         tree: trellisDocumentsTree,
         // eslint-disable-next-line no-secrets/no-secrets
@@ -187,10 +198,11 @@ app.post(
         },
       });
 
-      info('Created Trellis document: %s', headers['content-location']);
+      trace('Created Trellis document: %s', headers['content-location']);
     }
 
     response.end();
+    emailCounter.inc();
   })
 );
 

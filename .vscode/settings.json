@@ -45,6 +45,7 @@
     "Buildx",
     "codeql",
     "HJSON",
+    "pino",
     "Snyk",
     "sonarjs",
     "trellisfw",
